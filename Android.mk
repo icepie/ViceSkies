@@ -8,6 +8,6 @@ else
     LOCAL_MODULE    := ViceSkies64
 endif
 LOCAL_SRC_FILES := main.cpp mod/logger.cpp mod/config.cpp
-LOCAL_CFLAGS += -Ofast -mfloat-abi=softfp -DNDEBUG -std=c++17
+LOCAL_CFLAGS += -Ofast -mfloat-abi=softfp -DNDEBUG -std=c++17 -DGTA3_SUPPORT
 LOCAL_LDLIBS += -llog
 include $(BUILD_SHARED_LIBRARY)
