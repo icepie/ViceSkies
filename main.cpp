@@ -501,9 +501,12 @@ extern "C" void OnModLoad()
         CamPos = (CVector*)(TheCamera + 0x30); // both in 1.09 and 1.12
     }
     
-    // 设置钩子
-    HOOKBL(RenderClouds, pGTAGame + BYBIT(0x14EA6E + 0x1, 0x1FA750)); // RenderScene
-    HOOKBL(RenderClouds, pGTAGame + BYBIT(0x14D8DC + 0x1, 0x1F99DC)); // NewTileRendererCB
+    // 设置钩子 - 使用符号方式（GTA3和VC符号名相同）
+    void* renderScene = aml->GetSym(hGTAGame, "_Z11RenderScenev");
+    void* newTileRenderer = aml->GetSym(hGTAGame, "_Z17NewTileRende");
+    
+    if(renderScene) HOOKBL(RenderClouds, renderScene);
+    if(newTileRenderer) HOOKBL(RenderClouds, newTileRenderer);
     
     // 只在Vice City中启用IMPROVED_MOON相关钩子
     if(!isGTA3)
