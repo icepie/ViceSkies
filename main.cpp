@@ -6,6 +6,13 @@
 #include <math.h>
 #include <time.h>
 
+#ifdef GTA3_TARGET
+#include <android/log.h>
+#define GTA3SKIES_LOG(...) __android_log_print(ANDROID_LOG_INFO, "GTA3Skies", __VA_ARGS__)
+#else
+#define GTA3SKIES_LOG(...)
+#endif
+
 #define STARRY_SKIES
 
 #ifndef GTA3_TARGET
@@ -27,6 +34,9 @@ static bool CanSeeOutsideFallback() { return true; }
 static float ExtraSunnynessFallback = 0.0f;
 static float AspectRatioFallback = 4.0f / 3.0f;
 static uint32_t MoonSizeFallback = 0;
+static bool ForceVisibleClouds = true;
+static bool LogRenderHook = true;
+static uint32_t RenderHookCounter = 0;
 #endif
 
 #include "SimpleGTA.h"
@@ -91,12 +101,20 @@ DECL_HOOKv(RenderClouds)
 {
   #ifdef GTA3_TARGET
     RenderClouds();
+    ++RenderHookCounter;
     if(RsGlobal && RsGlobal->y != 0) AspectRatioFallback = (float)RsGlobal->x / (float)RsGlobal->y;
+    if(LogRenderHook && RenderHookCounter == 1)
+    {
+        GTA3SKIES_LOG("RenderScene hook hit. RsGlobal=%p TheCamera=%p CamPos=%p gpCloudTex=%p gpCoronaTexture=%p",
+                      RsGlobal, TheCamera, CamPos, gpCloudTex, gpCoronaTexture);
+    }
   #endif
 
     float szx, szy;
     RwV3d screenpos;
     RwV3d worldpos;
+    int lowCloudSprites = 0;
+    int fluffyCloudSprites = 0;
     
     if(!CanSeeOutSideFromCurrArea()) return;
     
@@ -109,6 +127,9 @@ DECL_HOOKv(RenderClouds)
     
     *SunBlockedByClouds = false;
     float coverage = fmaxf(*Foggyness, *CloudCoverage);
+  #ifdef GTA3_TARGET
+    if(ForceVisibleClouds && coverage > 0.35f) coverage = 0.35f;
+  #endif
     float decoverage = 1.0f - coverage;
     
     // Stars
@@ -192,6 +213,18 @@ DECL_HOOKv(RenderClouds)
     int r = *m_nCurrentLowCloudsRed   * lowcintens;
     int g = *m_nCurrentLowCloudsGreen * lowcintens;
     int b = *m_nCurrentLowCloudsBlue  * lowcintens;
+  #ifdef GTA3_TARGET
+    if(ForceVisibleClouds)
+    {
+        if(lowcintens < 0.65f) lowcintens = 0.65f;
+        if(r + g + b < 60)
+        {
+            r = 190;
+            g = 190;
+            b = 190;
+        }
+    }
+  #endif
     for(int cloudtype = 0; cloudtype < 3; ++cloudtype)
     {
         RwRenderStateSet(1, *(gpCloudTex[cloudtype]));
@@ -205,6 +238,7 @@ DECL_HOOKv(RenderClouds)
             {
                 if(!hasJPatch15) szx /= *ms_fAspectRatio;
                 RenderBufferedOneXLUSprite_Rotate_Dimension(screenpos, szx * 320.0f, szy * 40.0f, r, g, b, 255, 1.0f / screenpos.z, *ms_cameraRoll, 255);
+                ++lowCloudSprites;
             }
         }
         FlushSpriteBuffer();
@@ -223,6 +257,9 @@ DECL_HOOKv(RenderClouds)
         static float fCloudHighlight[37];
         
         int fluffyalpha = 160 * decoverage;
+      #ifdef GTA3_TARGET
+        if(ForceVisibleClouds && fluffyalpha < 160) fluffyalpha = 160;
+      #endif
         float rot_sin = sinf(*CloudRotation);
         float rot_cos = cosf(*CloudRotation);
 
@@ -250,6 +287,17 @@ DECL_HOOKv(RenderClouds)
                 int br = *m_nCurrentFluffyCloudsBottomRed;
                 int bg = *m_nCurrentFluffyCloudsBottomGreen;
                 int bb = *m_nCurrentFluffyCloudsBottomBlue;
+              #ifdef GTA3_TARGET
+                if(ForceVisibleClouds && tr + tg + tb + br + bg + bb < 180)
+                {
+                    tr = 220;
+                    tg = 220;
+                    tb = 220;
+                    br = 150;
+                    bg = 150;
+                    bb = 150;
+                }
+              #endif
                 
                 if(fSunDist[i] < distLimit)
                 {
@@ -267,6 +315,7 @@ DECL_HOOKv(RenderClouds)
                 }
                 if(!hasJPatch15) szx /= *ms_fAspectRatio;
                 RenderBufferedOneXLUSprite_Rotate_2Colours(screenpos, szx * 55.0f, szy * 55.0f, tr, tg, tb, br, bg, bb, 0.0f, -1.0f, 1.0f / screenpos.z, rotationValue, fluffyalpha);
+                ++fluffyCloudSprites;
                 bCloudOnScreen[i] = true;
             }
             else
@@ -351,6 +400,22 @@ DECL_HOOKv(RenderClouds)
     RwRenderStateSet(12, (void*)0);
     RwRenderStateSet(10, (void*)5);
     RwRenderStateSet(11, (void*)6);
+
+  #ifdef GTA3_TARGET
+    if(LogRenderHook && (RenderHookCounter == 1 || (RenderHookCounter % 300) == 0))
+    {
+        GTA3SKIES_LOG("frame=%u hour=%u coverage=%.2f aspect=%.2f low=%d fluffy=%d cam=(%.1f %.1f %.1f)",
+                      RenderHookCounter,
+                      ms_nGameClockHours ? *ms_nGameClockHours : 255,
+                      coverage,
+                      ms_fAspectRatio ? *ms_fAspectRatio : 0.0f,
+                      lowCloudSprites,
+                      fluffyCloudSprites,
+                      CamPos ? CamPos->x : 0.0f,
+                      CamPos ? CamPos->y : 0.0f,
+                      CamPos ? CamPos->z : 0.0f);
+    }
+  #endif
 }
 
 #ifdef IMPROVED_MOON
@@ -496,6 +561,8 @@ extern "C" void OnModLoad()
     ms_fAspectRatio = &AspectRatioFallback;
     ExtraSunnyness = &ExtraSunnynessFallback;
     MoonSize = &MoonSizeFallback;
+    ForceVisibleClouds = cfg->GetBool("ForceVisibleClouds", true);
+    LogRenderHook = cfg->GetBool("LogRenderHook", true);
     if(RsGlobal && RsGlobal->y != 0) AspectRatioFallback = (float)RsGlobal->x / (float)RsGlobal->y;
   #else
     SET_TO(ms_fAspectRatio,            aml->GetSym(hGame, "_ZN5CDraw15ms_fAspectRatioE"));
@@ -506,6 +573,12 @@ extern "C" void OnModLoad()
     
   #ifdef GTA3_TARGET
     HOOK(RenderClouds, aml->GetSym(hGame, "_Z11RenderScenev"));
+    GTA3SKIES_LOG("Loaded. pGame=%p hGame=%p RenderScene=%p ForceVisibleClouds=%d LogRenderHook=%d",
+                  (void*)pGame,
+                  hGame,
+                  (void*)aml->GetSym(hGame, "_Z11RenderScenev"),
+                  ForceVisibleClouds,
+                  LogRenderHook);
   #else
     HOOKBL(RenderClouds, pGame + BYBIT(0x14EA6E + 0x1, 0x1FA750)); // RenderScene
     HOOKBL(RenderClouds, pGame + BYBIT(0x14D8DC + 0x1, 0x1F99DC)); // NewTileRendererCB
